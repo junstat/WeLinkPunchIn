@@ -1,4 +1,6 @@
 import logging
+import os
+from logging.handlers import TimedRotatingFileHandler
 from typing import Dict
 
 import requests
@@ -6,21 +8,38 @@ import yaml
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-# 配置日志
-logging.basicConfig(
-    format='%(asctime)s - %(levelname)s: %(message)s',
-    level=logging.INFO
+log_dir = "logs"
+os.makedirs(log_dir, exist_ok=True)
+
+logger = logging.getLogger("WeLinkPunchIn")
+logger.setLevel(logging.INFO)
+formatter = logging.Formatter(
+    '[%(asctime)s] [%(levelname)s] [%(filename)s:%(lineno)d] - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
+
+# 按天滚动文件 Handler
+file_handler = TimedRotatingFileHandler(
+    filename=os.path.join(log_dir, "WeLinkPunchIn.log"),  # 基础文件名
+    when="midnight",  # 每天午夜滚动
+    interval=1,  # 每天生成一个文件
+    backupCount=7,  # 保留最近7天日志
+    encoding="utf-8",
+    delay=False,
+    utc=False  # 使用本地时间
+)
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
 
 
 def load_config(config_path: str = "conf.yaml") -> Dict[str, str]:
     with open(config_path, "r", encoding="utf-8") as f:
         try:
             conf = yaml.safe_load(f)
-            logging.info("配置文件加载成功")
+            logger.info("配置文件加载成功")
             return conf["app"]
         except yaml.YAMLError as exc:
-            logging.error(f'加载配置文件失败: {exc}')
+            logger.error(f'加载配置文件失败: {exc}')
             raise
 
 
@@ -35,12 +54,12 @@ def trigger_hamibot_task(job_type):
         }
         payload = {"devices": [{'_id': conf['DEVICE_ID']}]}
         resp = requests.post(url, headers=headers, json=payload)
-        if resp.status_code == 200:
-            logging.info(f"{job_type}打卡任务触发成功")
+        if resp.status_code == 204:
+            logger.info(f"{job_type}打卡任务触发成功")
         else:
-            logging.error(f"{job_type}打卡失败: {resp.text}")
+            logger.error(f"{job_type}打卡失败: {resp.text}")
     except Exception as e:
-        logging.error(f"请求异常: {str(e)}")
+        logger.error(f"请求异常: {str(e)}")
 
 
 def configure_schedules(scheduler):
@@ -91,7 +110,7 @@ def configure_schedules(scheduler):
 if __name__ == "__main__":
     scheduler = BlockingScheduler(timezone="Asia/Shanghai")
     configure_schedules(scheduler)
-    logging.info("定时任务已启动，按 Ctrl+C 退出")
+    logger.info("定时任务已启动，按 Ctrl+C 退出")
     try:
         scheduler.start()
     except KeyboardInterrupt:
